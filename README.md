@@ -1,39 +1,158 @@
-# GplusStats
+# Google Stats Library
+## Ruby Programming Manifesto - Example 1
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/gplus_stats`. To experiment with that code, run `bin/console` for an interactive prompt.
-
-TODO: Delete this and the text above, and describe your gem
-
-## Installation
-
-Add this line to your application's Gemfile:
+### The public interface and usage
 
 ```ruby
-gem 'gplus_stats'
+require 'gplus_stats'
+GplusStats.('+DreamrOKelly')
+# => {:follower_count=>21, :following_count=>9}
 ```
 
-And then execute:
+### The business object
 
-    $ bundle
+```ruby
+require 'gplus_stats/matchers/follower_count'
+require 'gplus_stats/matchers/following_count'
+require 'gplus_stats/get_profile_html'
 
-Or install it yourself as:
+module GplusStats
+  extend self
 
-    $ gem install gplus_stats
+  def call(uid)
+    google_url = url(uid)
+    {
+      follower_count:  follower_count(google_url),
+      following_count: following_count(google_url),
+    }
+  end
 
-## Usage
+private
 
-TODO: Write usage instructions here
+  def follower_count(url)
+    GplusStats::Matchers::FollowerCount.(profile_html(url))
+  end
 
-## Development
+  def following_count(url)
+    GplusStats::Matchers::FollowingCount.(profile_html(url))
+  end
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `bin/console` for an interactive prompt that will allow you to experiment.
+  def profile_html(url)
+    GplusStats::GetProfileHtml.(url)
+  end
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release` to create a git tag for the version, push git commits and tags, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+  def url(uid)
+    "https://plus.google.com/u/0/#{uid}/posts"
+  end
 
-## Contributing
+end
+```
 
-1. Fork it ( https://github.com/[my-github-username]/gplus_stats/fork )
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create a new Pull Request
+### A downloader delegate object
+
+```ruby
+module GplusStats::GetProfileHtml
+  extend self
+
+  def call(url)
+    scrape(url)
+  end
+
+private
+
+  def crawler
+    Typhoeus
+  end
+
+  def scrape(url)
+    html = crawler.get(url, followlocation: true).body
+    return rescrape(url) if has_moved?(url)
+    html
+  end
+
+  def rescrape(url)
+    redirection_url = redirect_location(html)
+    scrape(redirect_location)
+  end
+
+  def has_moved?(html)
+    html =~ /<title>moved temporarily<\/title>/i
+  end
+
+  def url_matcher
+    /The document has moved \<A HREF=\"(.*)\">here<\/A>/i
+  end
+
+  def redirect_location(html)
+    html.scan(url_matcher).flatten[0]
+  end
+
+end
+```
+
+
+### A Matcher object for follower_count
+
+```ruby
+require 'nokogiri'
+require 'gplus_stats/matchers/match'
+
+module GplusStats::Matchers::FollowerCount
+  extend self
+  extend GplusStats::Matchers::Match
+
+private
+
+  def match_followers(html)
+    doc = Nokogiri::HTML(html)
+    doc.css(".vkb").children.first.text.gsub(/\D/,'').to_i
+  rescue NoMethodError
+  end
+
+end
+```
+
+
+### A Matcher object for following_count
+
+```ruby
+require 'nokogiri'
+require 'gplus_stats/matchers/match'
+
+module GplusStats::Matchers::FollowerCount
+  extend self
+  extend GplusStats::Matchers::Match
+
+private
+
+  def match_followers(html)
+    doc = Nokogiri::HTML(html)
+    doc.css(".vkb").children.first.text.gsub(/\D/,'').to_i
+  rescue NoMethodError
+  end
+
+end
+```
+
+### A 'base' matcher object to share functionality
+
+```ruby
+module GplusStats::Matchers::Match
+
+  def call(html)
+    matches(html) || 0
+  end
+
+protected
+
+  def matchers
+    private_methods.map(&:to_s).select {|m| m =~ /match_/}
+  end
+
+  def matches(html)
+    results = matchers.map {|matcher| send(matcher, html) }
+    results.compact.any? ? results[0] : nil
+  end
+
+end
+```
