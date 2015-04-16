@@ -8,21 +8,21 @@ module GplusStats
   extend self
 
   def call(uid)
-    google_url = url(uid)
+    html = profile_html(url(uid))
     {
-      follower_count:  follower_count(google_url),
-      following_count: following_count(google_url),
+      follower_count:  follower_count(html),
+      following_count: following_count(html),
     }
   end
 
 private
 
-  def follower_count(url)
-    GplusStats::Matchers::FollowerCount.(profile_html(url))
+  def follower_count(html)
+    GplusStats::Matchers::FollowerCount.(html)
   end
 
-  def following_count(url)
-    GplusStats::Matchers::FollowingCount.(profile_html(url))
+  def following_count(html)
+    GplusStats::Matchers::FollowingCount.(html)
   end
 
   def profile_html(url)
